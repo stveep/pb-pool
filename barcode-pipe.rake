@@ -8,8 +8,11 @@
 #<fastq file name, full path>	<sequencing run ID>	<seq. index>	<library>	<drug>
 config = ARGV.last
 
+# Default output file name - better to pass this direct to summary task from cmd line?
+outf = "summary.csv"
+
 # The fastq.rb file needs to be available.
-require '/home/breakthr/spettitt/data/scripts/transposon/fastq'
+require '/Users/spettitt/work/scripts/fastq.rb'
 
 # Barcode match/capture regexps can be changed if required:
 sbc = /TGAATTC(.{15,30})($|TACATC)/
@@ -74,5 +77,51 @@ rule('.map' => '.bc' ) do |a|
 	IO.foreach(a.prerequisites[0]){|l| m.puts "chr\tstrand\tpos\tgene\t" + l.chomp } 
 end # map rule
 
+task :summary => files.map{|a| a.sub('.fastq','sims.map') + a.sub('.fastq','west.map')} do |t|
+# Counter for file number
+i = 1
+hash = {}
+titles = []
+t.prerequisites.each do |f|
+	input = File.open(f,'r')
+	input.each do |l|
+# Split into fields
+		(barcode, count) = l.split(" ") 
 
+# Use hash to associate coverage values array (PB5+3 ends) with site
+		if (hash[barcode])
+		hash[barcode] << count
+		else
+			hash[barcode] = []
+# If it's a new site, we can add if first file...
+			if (i == 1)
+				hash[barcode] << count
+# ...if not, need to add an appropriate no. of zeroes first to keep table format
+			else
+				j = i-1
+				j.times {hash[barcode] << 0}
+				hash[barcode] << count
+			end
+		end
+	end
+# Add zero array to any barcode that wasn't seen in this file
+	hash.each {|k,v| hash[k] << 0 if (v.length < i)}
+	# Now to make the corresponding title for the column in the final table
+	# Use the config file data to construct the column names:
+	# Column name will be Lib_drug_sims/west_run_index
+	# Need to reconstruct the fastq filename for the hash:
+	entry = fileh[f.sub(/\.(.+).map/.fastq/)]
+	fileh[fields[0]] = {'run' => fields[1], 'index' => fields[2], 'library' => fields[3], 'drug' => fields[4]}
+	titles << entry['library'] + "_" + entry['drug'] + "_" + $1 + "_" + entry['run'] + "_" entry['index']
+# That's enough looping through files
+	i += 1
+end
 
+# Output a table from the hash
+
+o = File.open(outf, 'w')
+
+# [Need to add column for gene/mapping too]
+o.puts "barcode," + titles.join(",")
+
+end # summary task
